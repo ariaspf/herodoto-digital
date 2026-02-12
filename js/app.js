@@ -12,8 +12,8 @@ const RANGOS_VISIBLES = [
 ];
 
 // Configuración de Candados (Locks)
-const LOCK_TTL_MINUTES = 15;       // Tiempo de vida del candado (minutos)
-const HEARTBEAT_INTERVAL = 4 * 60 * 1000; // Renovar candado cada 4 minutos
+const LOCK_TTL_MINUTES = 2;        // Tiempo para considerar "Zombie"
+const HEARTBEAT_INTERVAL = 30000;  // Latido cada 30 segundos
 
 const TRADUCCIONES_MORF = {
     // Clases de palabra (UPOS)
@@ -45,9 +45,10 @@ const TRADUCCIONES_MORF = {
 
 // ESTADO GLOBAL
 let tokensActuales = [];
-let currentUser = null;      // Usuario logueado actual
-let currentHeartbeat = null; // Timer para renovar el candado
-let currentAnchor = null;    // Palabra griega seleccionada actualmente para la nota
+let currentUser = null;      
+let currentHeartbeat = null; 
+let currentAnchor = null;    
+let currentLockedRef = null; // [NUEVO] Rastrea qué sección tengo bloqueada yo
 
 // ==========================================
 // 🚀 INICIO DE LA APLICACIÓN
@@ -120,7 +121,7 @@ function initUI() {
         btnSave.addEventListener('click', guardarTraduccion);
     }
 
-    // Botón Guardar Nota (Nueva funcionalidad)
+    // Botón Guardar Nota
     const btnAddNote = document.getElementById('btn-add-note');
     if(btnAddNote) {
         btnAddNote.addEventListener('click', crearNota);
@@ -212,7 +213,10 @@ function initAuth() {
 
     if(btnLogout) {
         btnLogout.addEventListener('click', async () => {
+            // [NUEVO] Limpiar candado antes de salir
             detenerHeartbeat();
+            await liberarCandadoActual(); 
+            
             await _supabase.auth.signOut();
             await actualizarInterfazUsuario(null);
         });
@@ -304,8 +308,9 @@ async function cargarSecciones() {
 }
 
 async function cargarContenido(ref) {
-    // 1. Limpieza inicial
+    // 1. Limpieza inicial + [NUEVO] Liberar candado anterior
     detenerHeartbeat(); 
+    await liberarCandadoActual(); 
     
     const containerGriego = document.getElementById('greek-text-container');
     const editorEspanol = document.getElementById('translation-editor');
@@ -315,7 +320,7 @@ async function cargarContenido(ref) {
     
     displayRef.textContent = ref;
     containerGriego.innerHTML = '<p class="loading">Cargando texto...</p>';
-    statusSpan.innerHTML = ""; // Limpiar estados previos
+    statusSpan.innerHTML = ""; 
 
     // 2. Cargar Tokens (Griego)
     const { data: tokens, error: errorTokens } = await _supabase
@@ -342,44 +347,61 @@ async function cargarContenido(ref) {
 
     editorEspanol.value = trad ? trad.texto_espanol : '';
     
-    // 4. Mostrar Autoría (Trazabilidad)
+    // 4. Mostrar Autoría
     if (trad && trad.autor_id) {
         const nombreAutor = await obtenerNombrePerfil(trad.autor_id);
         const fecha = new Date(trad.updated_at).toLocaleString();
         statusSpan.innerHTML = `<span style="color:#666; font-size:0.85em; background:#f0f0f0; padding:2px 6px; border-radius:4px;">📝 Última ed.: <b>${nombreAutor}</b> (${fecha})</span>`;
     }
 
-    // 5. CARGAR NOTAS (Nuevo)
+    // 5. CARGAR NOTAS
     await cargarNotas(ref);
 
-    // 6. Lógica de Candado (Locking) Visual
+    // 6. Lógica de Candado INTELIGENTE ("El Portero")
     if (!currentUser) {
         editorEspanol.disabled = true;
+        editorEspanol.style.backgroundColor = "#f9f9f9";
         btnSave.style.display = 'none';
         return; 
     }
 
-    const ahora = new Date();
+    // A. Analizar situación
+    let esCandadoZombie = false;
     let bloqueadoPorOtro = false;
     let nombreLocker = "";
 
-    if (trad && trad.locked_at) {
+    if (trad && trad.locked_at && trad.locked_by) {
+        const ahora = new Date();
         const fechaLock = new Date(trad.locked_at);
-        const diffMinutos = (ahora - fechaLock) / 60000;
+        const diferenciaMinutos = (ahora - fechaLock) / 1000 / 60; 
 
-        if (diffMinutos < LOCK_TTL_MINUTES && trad.locked_by !== currentUser.id) {
-            bloqueadoPorOtro = true;
-            nombreLocker = await obtenerNombrePerfil(trad.locked_by);
+        if (trad.locked_by !== currentUser.id) {
+            if (diferenciaMinutos < LOCK_TTL_MINUTES) {
+                bloqueadoPorOtro = true;
+                nombreLocker = await obtenerNombrePerfil(trad.locked_by);
+            } else {
+                esCandadoZombie = true;
+                console.log("🧟 Candado Zombie detectado. Liberando acceso...");
+            }
         }
     }
 
+    // B. Decidir acceso
     if (bloqueadoPorOtro) {
         // --- MODO BLOQUEADO ---
         editorEspanol.disabled = true;
-        editorEspanol.style.backgroundColor = "#ffebee"; // Rojo suave
+        editorEspanol.style.backgroundColor = "#ffebee";
         editorEspanol.style.border = "2px solid #ef5350";
         btnSave.style.display = 'none';
-        statusSpan.innerHTML = `<span style="color:#d32f2f; font-weight:bold; background:#ffcdd2; padding:4px 8px; border-radius:4px;">🔒 Editando ahora: ${nombreLocker}</span>`;
+        
+        statusSpan.innerHTML = `
+            <span style="color:#d32f2f; font-weight:bold; background:#ffcdd2; padding:4px 8px; border-radius:4px; display:inline-flex; align-items:center; gap:5px;">
+                🔒 Editando ahora: ${nombreLocker} 
+                <span style="font-size:0.8em; font-weight:normal;">(Espere...)</span>
+            </span>`;
+        
+        detenerHeartbeat(); 
+
     } else {
         // --- MODO EDICIÓN ---
         editorEspanol.disabled = false;
@@ -392,14 +414,19 @@ async function cargarContenido(ref) {
         iniciarHeartbeat(ref);
     }
     
+    // Limpieza de filtros
     const checkboxes = document.querySelectorAll('.morph-filters input');
     if(checkboxes) checkboxes.forEach(i => i.checked = false);
 }
 
-// --- FUNCIONES AUXILIARES DE CANDADO ---
+// --- FUNCIONES DE CANDADO (MODIFICADAS) ---
 
 async function adquirirCandado(ref) {
     if (!currentUser) return;
+    
+    // [NUEVO] Marcamos localmente que tenemos este candado
+    currentLockedRef = ref;
+
     await _supabase.from('traducciones').upsert({
         reference: ref,
         locked_by: currentUser.id,
@@ -407,12 +434,34 @@ async function adquirirCandado(ref) {
     }, { onConflict: 'reference' });
 }
 
+async function liberarCandadoActual() {
+    if (!currentUser || !currentLockedRef) return;
+    
+    const refALiberar = currentLockedRef;
+    currentLockedRef = null; // Limpiamos la variable local inmediatamente
+
+    console.log("🔓 Liberando candado explícitamente:", refALiberar);
+
+    await _supabase.from('traducciones')
+        .update({ locked_by: null, locked_at: null })
+        .eq('reference', refALiberar)
+        .eq('locked_by', currentUser.id);
+}
+
+// ==========================================
+// 💓 SISTEMA DE HEARTBEAT (Silencioso)
+// ==========================================
+
 function iniciarHeartbeat(ref) {
     if (currentHeartbeat) clearInterval(currentHeartbeat);
     
-    console.log("💓 Iniciando heartbeat para", ref);
+    // console.log("💓 Iniciando latido para:", ref); // Comentado para limpiar consola
+
     currentHeartbeat = setInterval(async () => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            detenerHeartbeat();
+            return;
+        }
         
         const { error } = await _supabase
             .from('traducciones')
@@ -421,9 +470,10 @@ function iniciarHeartbeat(ref) {
             .eq('locked_by', currentUser.id);
 
         if (error) {
-            console.warn("Error heartbeat:", error);
-            detenerHeartbeat();
-        }
+            console.warn("⚠️ Error en latido (conexión o pérdida de candado).");
+        } 
+        // Eliminado log de éxito repetitivo
+
     }, HEARTBEAT_INTERVAL);
 }
 
@@ -431,7 +481,6 @@ function detenerHeartbeat() {
     if (currentHeartbeat) {
         clearInterval(currentHeartbeat);
         currentHeartbeat = null;
-        console.log("💔 Heartbeat detenido");
     }
 }
 
@@ -475,7 +524,6 @@ async function guardarTraduccion() {
         statusSpan.textContent = "❌ Error";
     } else {
         statusSpan.textContent = "✅ Guardado correctamente";
-        // Recargar contenido para actualizar la etiqueta de autoría
         setTimeout(() => cargarContenido(ref), 1500);
     }
 
@@ -499,14 +547,11 @@ function renderGriego(tokens) {
         span.setAttribute('data-upos', token.upos);
         
         span.addEventListener('click', () => {
-            // Gestión visual de selección
             document.querySelectorAll('.greek-word').forEach(w => w.classList.remove('selected'));
             span.classList.add('selected');
             
-            // 1. Mostrar Diccionario (Funcionalidad original)
             mostrarDefinicion(token);
 
-            // 2. Preparar Sistema de Notas (Nueva funcionalidad)
             currentAnchor = token.form;
             const anchorPreview = document.getElementById('anclaje-preview');
             if(anchorPreview) {
@@ -525,7 +570,6 @@ function renderGriego(tokens) {
 function mostrarDefinicion(token) {
     const dictContent = document.getElementById('dictionary-content');
     
-    // 1. Generamos el HTML Estático (Morfología)
     const morfologiaHTML = formatearMorfologia(token.morph_hybrid);
     const claseTraducida = TRADUCCIONES_MORF[token.upos] || token.upos;
     let dialectoHTML = '';
@@ -551,7 +595,6 @@ function mostrarDefinicion(token) {
         `;
     }
 
-    // 2. Insertamos la estructura base (Con placeholder para el LSJ)
     dictContent.innerHTML = `
         <span class="lemma-title">${token.form}</span>
         <div style="margin-bottom: 15px;">
@@ -572,15 +615,11 @@ function mostrarDefinicion(token) {
         </div>
     `;
     
-    // 3. Abrimos el panel si está cerrado (Mantenemos foco en diccionario por defecto)
     const workspace = document.querySelector('.workspace-container');
     if (workspace.classList.contains('hide-right')) {
         document.getElementById('show-right').click();
     }
-    // NOTA: Si quisieras que cambie de tab automáticamente a Notas, sería aquí,
-    // pero es mejor dejar que el usuario elija cuándo ir a notas.
 
-    // 4. Llamada Asíncrona al Diccionario (NO bloquea la interfaz)
     consultarLSJ(token);
 }
 
@@ -593,17 +632,14 @@ async function consultarLSJ(token) {
             .from('lsj_diccionario')
             .select('definition_md, lemma, urn');
 
-        // ESTRATEGIA: Intentar primero por URN (Exacto), sino por Lema (Fallback)
         let busquedaPorUrn = false;
 
         if (token.lsj_id && Array.isArray(token.lsj_id) && token.lsj_id.length > 0) {
-            // LIMPIEZA: Quitamos posibles comillas o espacios basura
             const rawID = token.lsj_id[0];
             const cleanID = rawID.replace(/['"]/g, '').trim(); 
             query = query.eq('urn', cleanID); 
             busquedaPorUrn = true;
         } else {
-            // Caso fallback: Buscamos por la forma base (lemma)
             query = query.eq('lemma_clean', token.lemma);
         }
 
@@ -612,7 +648,6 @@ async function consultarLSJ(token) {
         if (error) throw error;
 
         if (data && data.definition_md) {
-            // Convertimos el Markdown simple a HTML para visualizarlo
             const htmlDefinition = simpleMarkdown(data.definition_md);
             container.innerHTML = `
                 <h4 style="margin-bottom:10px; color:#2c3e50;">Diccionario LSJ</h4>
@@ -648,25 +683,19 @@ function formatearMorfologia(morph) {
 
 // --- UTILIDADES ---
 
-// Pequeño parser de Markdown para no depender de librerías externas pesadas
 function simpleMarkdown(md) {
     if (!md) return '';
     let html = md
-        // Negritas: **texto**
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-        // Cursivas: *texto* (usado en LSJ para autores/obras)
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        // Código o Griego destacado: `texto`
         .replace(/`(.*?)`/g, '<code style="background:#f4f1ea; padding:0 4px; border-radius:3px; color:#c0392b;">$1</code>')
-        // Saltos de línea
         .replace(/\n/g, '<br>');
-    
     return html;
 }
 
 
 /* =========================================
-   5. SISTEMA DE NOTAS (Nueva Funcionalidad)
+   5. SISTEMA DE NOTAS
    ========================================= */
 
 async function cargarNotas(seccionReference) {
@@ -679,7 +708,7 @@ async function cargarNotas(seccionReference) {
         const { data: notas, error } = await _supabase
             .from('notas_criticas')
             .select('*')
-            .eq('reference', seccionReference) // Filtra por sección actual
+            .eq('reference', seccionReference) 
             .order('created_at', { ascending: true });
 
         if (error) throw error;
@@ -693,9 +722,7 @@ async function cargarNotas(seccionReference) {
             return;
         }
 
-        // Renderizar notas
         const htmlNotas = notas.map(nota => {
-            // Asignar clase de color según el tipo
             let badgeClass = "badge-default";
             if(nota.tipo === "Realia") badgeClass = "badge-realia";
             if(nota.tipo === "Filológica") badgeClass = "badge-filologica";
@@ -733,7 +760,6 @@ async function cargarNotas(seccionReference) {
 async function crearNota() {
     if (!currentUser) return alert("Debes iniciar sesión para agregar notas.");
 
-    // 1. Obtener valores del formulario
     const inputContenido = document.getElementById('nueva-nota-contenido');
     const inputTipo = document.getElementById('nueva-nota-tipo'); 
     const selectorRef = document.getElementById('section-selector');
@@ -745,7 +771,7 @@ async function crearNota() {
         reference: selectorRef.value,
         contenido: inputContenido.value,
         tipo: inputTipo.value || "Filológica", 
-        anclaje: currentAnchor, // Usamos la variable global
+        anclaje: currentAnchor, 
         autor_id: currentUser.id
     };
 
@@ -756,15 +782,12 @@ async function crearNota() {
 
         if (error) throw error;
 
-        // Limpiar formulario y recargar
         inputContenido.value = "";
         currentAnchor = null; 
         
-        // Limpiar preview visual del anclaje
         const preview = document.getElementById('anclaje-preview');
         if(preview) preview.innerHTML = "";
 
-        // Recargar la lista
         cargarNotas(selectorRef.value);
 
     } catch (err) {
@@ -773,11 +796,10 @@ async function crearNota() {
     }
 }
 
-// Funciones globales para ser llamadas desde el HTML insertado dinámicamente
 window.guardarEdicion = async function(idNota, elementoHTML) {
     if (!currentUser) {
         alert("Debes estar logueado para editar.");
-        return; // Revertir cambio visualmente podría ser complejo, por ahora avisamos.
+        return; 
     }
 
     const nuevoTexto = elementoHTML.innerText;
@@ -793,7 +815,6 @@ window.guardarEdicion = async function(idNota, elementoHTML) {
 
         if (error) throw error;
         
-        // Feedback visual sutil
         elementoHTML.style.borderLeft = "3px solid #2ecc71";
         elementoHTML.style.background = "#f0fff4";
         setTimeout(() => {
@@ -819,7 +840,6 @@ window.eliminarNota = async function(idNota) {
 
         if (error) throw error;
 
-        // Eliminar visualmente del DOM
         const el = document.getElementById(`nota-${idNota}`);
         if(el) el.remove();
 
