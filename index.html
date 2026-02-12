@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heródoto Digital: Libro I</title>
+    
+    <link rel="stylesheet" href="css/style.css">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;1,400&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <header class="main-header">
+        <div class="brand">
+            <i class="fa-solid fa-book-open"></i>
+            <span>Heródoto Digital</span>
+        </div>
+
+        <nav class="navigation-controls">
+            <button id="btn-prev" title="Sección Anterior">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            
+            <select id="section-selector">
+                <option value="" disabled selected>Cargando...</option>
+            </select>
+            
+            <button id="btn-next" title="Sección Siguiente">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </nav>
+
+        <div class="user-area">
+            <button onclick="window.location.href='proyecto.html'" title="Ver detalles del proyecto">
+                <i class="fa-solid fa-circle-info"></i> Sobre el Proyecto
+            </button>
+            <span id="user-status">Visitante</span>
+            <button id="btn-login" class="btn-primary">
+                <i class="fa-solid fa-user"></i> Entrar
+            </button>
+            <button id="btn-logout" class="hidden btn-secondary">
+                <i class="fa-solid fa-right-from-bracket"></i> Salir
+            </button>
+        </div>
+    </header>
+
+    <div class="workspace-container">
+
+        <aside id="panel-left" class="sidebar">
+            <div class="panel-header">
+                <h3>Visualización</h3>
+                <button id="toggle-left" class="btn-icon" title="Ocultar Panel">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="panel-content">
+                <fieldset class="morph-filters"> 
+                    <legend>Resaltar Morfología</legend>
+                    <label><input type="checkbox" id="filter-nouns" value="NOUN"> Sustantivos</label>
+                    <label><input type="checkbox" id="filter-propn" value="PROPN"> Nombres Propios</label>
+                    <label><input type="checkbox" id="filter-adjs" value="ADJ"> Adjetivos</label>
+                    <label><input type="checkbox" id="filter-verbs" value="VERB"> Verbos</label>   
+               </fieldset>
+            </div>
+        </aside>
+
+        <main id="main-content">
+            <button id="show-left" class="toggle-float left hidden" title="Filtros">
+                <i class="fa-solid fa-filter"></i>
+            </button>
+
+            <section class="text-column greek-column">
+                <div class="column-header">
+                    <h2>Texto Griego</h2>
+                    <span class="ref-display">--.--.--</span>
+                </div>
+                <div id="greek-text-container" class="text-content greek-font">
+                    <p class="placeholder">Selecciona una sección arriba para empezar.</p>
+                </div>
+            </section>
+
+            <section class="text-column translation-column">
+                <div class="column-header">
+                    <h2>Traducción</h2>
+                    <span id="save-status"></span>
+                </div>
+                
+                <div class="text-content" style="padding: 0; display:flex; flex-direction:column;"> 
+                    <textarea id="translation-editor" placeholder="Inicia sesión para traducir..."></textarea>
+                </div>
+                
+                <div class="column-footer">
+                    <button id="btn-save" class="btn-primary" style="display: none;">
+                        <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
+                    </button>
+                </div>
+            </section>
+
+            <button id="show-right" class="toggle-float right hidden" title="Inspector">
+                <i class="fa-solid fa-book"></i>
+            </button>
+        </main>
+
+        <aside id="panel-right" class="sidebar">
+            <div class="panel-header">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="diccionario">LSJ</button>
+                    <button class="tab-btn" data-tab="notas">Notas</button>
+                </div>
+                <button id="toggle-right" class="btn-icon" title="Ocultar Panel">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="panel-content">
+                <div id="tab-diccionario" class="tab-content active">
+                    <div id="dictionary-content">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-hand-pointer"></i>
+                            <p>Haz clic en una palabra griega para ver su definición.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-notas" class="tab-content">
+                    
+                    <div class="new-note-box">
+                        <h4>Nueva Nota</h4>
+                        <div id="anclaje-preview"></div>
+                        
+                        <div class="form-row">
+                            <select id="nueva-nota-tipo">
+                                <option value="Filológica">Filológica</option>
+                                <option value="Realia">Realia</option>
+                                <option value="Aclaratoria">Aclaratoria</option>
+                            </select>
+                        </div>
+                        
+                        <textarea id="nueva-nota-contenido" rows="3" placeholder="Escribe tu nota aquí..."></textarea>
+                        <button id="btn-add-note" class="btn-small full-width">Agregar Nota</button>
+                    </div>
+
+                    <hr class="divider">
+
+                    <div id="notas-list">
+                        <p class="info-text">Cargando notas...</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <footer class="main-footer">
+        <div class="footer-info">
+            <p>&copy; 2026 Proyecto Heródoto Digital.</p>
+        </div>
+        <div class="footer-status">
+            <span id="connection-status"><i class="fa-solid fa-circle-check"></i> Sistema listo</span>
+        </div>
+    </footer>
+
+    <dialog id="login-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-circle"></i> Iniciar Sesión</h3>
+                <button id="btn-close-modal" class="btn-icon">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="email" required>
+                </div>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" id="password" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Entrar</button>
+                </div>
+                <p id="login-error" class="error-msg"></p>
+            </form>
+        </div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
