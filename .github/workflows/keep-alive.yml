@@ -1,0 +1,24 @@
+name: Supabase Keep Alive (Despertador)
+
+on:
+  schedule:
+    # Se ejecuta a las 12:00 UTC los lunes y jueves
+    - cron: '0 12 * * 1,4'
+  workflow_dispatch: # Permite ejecutarlo manualmente con un botón
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Hacer Ping a Supabase
+        env:
+          SUPA_URL: ${{ secrets.SUPABASE_URL }}
+          SUPA_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "Despertando a la base de datos..."
+          curl -s -o /dev/null -w "%{http_code}" \
+          -H "apikey: $SUPA_KEY" \
+          -H "Authorization: Bearer $SUPA_KEY" \
+          "$SUPA_URL/rest/v1/libro1_estructura?select=reference&limit=1"
+          echo -e "\n¡Ping completado con éxito!"
