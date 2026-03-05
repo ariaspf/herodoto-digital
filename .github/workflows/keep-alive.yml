@@ -2,9 +2,8 @@ name: Supabase Keep Alive (Despertador)
 
 on:
   schedule:
-    # Se ejecuta a las 12:00 UTC los lunes y jueves
     - cron: '0 12 * * 1,4'
-  workflow_dispatch: # Permite ejecutarlo manualmente con un botón
+  workflow_dispatch:
 
 jobs:
   ping-supabase:
